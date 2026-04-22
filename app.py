@@ -172,7 +172,7 @@ if page == "Overview":
                 yaxis_tickformat=".0%",
                 hovermode="x unified",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with col_r:
         st.subheader("Average Win % by School")
@@ -189,7 +189,7 @@ if page == "Overview":
             showlegend=False,
             xaxis_tickformat=".0%",
         )
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     # Scheme distribution
     if "off_scheme" in df.columns:
@@ -203,7 +203,7 @@ if page == "Overview":
                           title="Offensive Schemes",
                           color_discrete_sequence=px.colors.qualitative.Bold)
             fig3.update_layout(paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
         with c2:
             def_counts = df["def_scheme"].value_counts().reset_index()
             def_counts.columns = ["scheme", "count"]
@@ -211,7 +211,7 @@ if page == "Overview":
                           title="Defensive Schemes",
                           color_discrete_sequence=px.colors.qualitative.Pastel)
             fig4.update_layout(paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig4, use_container_width=True)
+            st.plotly_chart(fig4, width="stretch")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -254,7 +254,7 @@ elif page == "Team Stats":
                     y_axis: y_axis.replace("_", " ").title()},
         )
         fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         st.markdown("---")
         st.subheader("Season-by-Season Trend")
@@ -267,7 +267,7 @@ elif page == "Team Stats":
         )
         fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                            legend=dict(orientation="h", y=-0.2))
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
         st.markdown("---")
         with st.expander("Raw data table"):
@@ -275,7 +275,7 @@ elif page == "Team Stats":
                 filtered[["school", "year"] + numeric_cols]
                 .sort_values(["school", "year"])
                 .style.background_gradient(subset=numeric_cols, cmap="RdYlGn"),
-                use_container_width=True,
+                width="stretch",
             )
 
 
@@ -325,7 +325,7 @@ elif page == "Scheme Detector":
             title=f"{heat_metric.replace('_', ' ').title()} — School × Year",
         )
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         # Scheme label table
         st.subheader("Scheme Labels")
@@ -336,7 +336,7 @@ elif page == "Scheme Detector":
                 subset=[c for c in available if c in view.columns],
                 cmap="RdYlGn"
             ),
-            use_container_width=True,
+            width="stretch",
             height=420,
         )
 
@@ -352,7 +352,7 @@ elif page == "Scheme Detector":
                           color_discrete_sequence=px.colors.qualitative.Bold)
             fig2.update_layout(showlegend=False, paper_bgcolor="rgba(0,0,0,0)",
                                plot_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
         with c2:
             dc = view["def_scheme"].value_counts().reset_index()
             dc.columns = ["scheme", "n"]
@@ -361,7 +361,7 @@ elif page == "Scheme Detector":
                           color_discrete_sequence=px.colors.qualitative.Pastel)
             fig3.update_layout(showlegend=False, paper_bgcolor="rgba(0,0,0,0)",
                                plot_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -395,7 +395,7 @@ elif page == "Scheme vs Wins":
             fig.update_layout(yaxis_tickformat=".0%", yaxis_title="Avg Ivy Win %",
                               plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                               xaxis_tickangle=-20)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         with c2:
             st.subheader("Defensive Scheme")
@@ -416,7 +416,7 @@ elif page == "Scheme vs Wins":
             fig2.update_layout(yaxis_tickformat=".0%", yaxis_title="Avg Ivy Win %",
                                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                                xaxis_tickangle=-20)
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
         st.markdown("---")
         st.subheader("Win % Distribution by Offensive Scheme")
@@ -430,7 +430,7 @@ elif page == "Scheme vs Wins":
         fig3.update_layout(showlegend=False, plot_bgcolor="rgba(0,0,0,0)",
                            paper_bgcolor="rgba(0,0,0,0)", yaxis_tickformat=".0%",
                            xaxis_tickangle=-15)
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width="stretch")
 
         # Regression output (if processed data has enough rows)
         st.markdown("---")
@@ -471,7 +471,7 @@ elif page == "Scheme vs Wins":
                     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                     height=max(300, len(coef) * 40),
                 )
-                st.plotly_chart(fig4, use_container_width=True)
+                st.plotly_chart(fig4, width="stretch")
                 with st.expander("Full regression summary"):
                     st.text(model.summary().as_text())
             except Exception as e:
@@ -525,7 +525,7 @@ elif page == "Roster Analysis":
                 paper_bgcolor="rgba(0,0,0,0)",
                 legend=dict(orientation="h", y=-0.15),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         # Weight trends over time
         st.markdown("---")
@@ -541,7 +541,7 @@ elif page == "Roster Analysis":
         )
         fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                            legend=dict(orientation="h", y=-0.2))
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
         # Roster metric vs win %
         if "ivy_win_pct" in view.columns:
@@ -559,7 +559,7 @@ elif page == "Roster Analysis":
             )
             fig3.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                                yaxis_tickformat=".0%")
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
 
         # Heatmap of all roster metrics
         st.markdown("---")
@@ -567,6 +567,6 @@ elif page == "Roster Analysis":
             display = view[["school", "year"] + roster_metrics].sort_values(["school", "year"])
             st.dataframe(
                 display.style.background_gradient(subset=roster_metrics, cmap="Blues"),
-                use_container_width=True,
+                width="stretch",
                 height=400,
             )
