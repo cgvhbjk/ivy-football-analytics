@@ -144,7 +144,8 @@ def train_roster_model(game_df: pd.DataFrame,
     Returns dict with model, feature importances, and CV score.
     """
     feature_cols = [c for c in game_df.columns
-                    if c.startswith("home_") or c in ("opp_run_heavy", "opp_pass_heavy")]
+                    if (c.startswith("home_") and c != "home_away")
+                    or c in ("opp_run_heavy", "opp_pass_heavy")]
 
     df = game_df[feature_cols + ["win"]].dropna()
     if len(df) < 30:
