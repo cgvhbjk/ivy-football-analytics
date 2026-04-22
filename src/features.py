@@ -169,6 +169,50 @@ def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Derive team stats from game data (used when season-stats API is unavailable)
+# ---------------------------------------------------------------------------
+
+IVY_CFBD_NAMES = {"brown", "columbia", "cornell", "dartmouth", "harvard",
+                   "pennsylvania", "princeton", "yale"}
+
+
+def build_stats_from_games(schedule_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Derive per-season team metrics directly from game results.
+    Works with the cfbd games schema (columns: school, year, points, opp_points,
+    result, conference_game, opponent).
+    """
+    df = schedule_df.copy()
+    df["points"]     = pd.to_numeric(df.get("points"),     errors="coerce")
+    df["opp_points"] = pd.to_numeric(df.get("opp_points"), errors="coerce")
+    df["win"]        = (df["result"].str.upper() == "W").astype(int)
+    df["margin"]     = df["points"] - df["opp_points"]
+
+    agg = df.groupby(["school", "year"]).agg(
+        games         = ("win", "count"),
+        wins          = ("win", "sum"),
+        points_for    = ("points", "mean"),
+        points_against= ("opp_points", "mean"),
+        avg_margin    = ("margin", "mean"),
+    ).reset_index()
+    agg["win_pct"]   = agg["wins"] / agg["games"]
+    agg["point_diff"]= agg["points_for"] - agg["points_against"]
+
+    # Ivy-only subset
+    ivy_mask = df["opponent"].str.lower().apply(
+        lambda x: any(s in str(x).lower() for s in IVY_CFBD_NAMES)
+    )
+    ivy = df[ivy_mask].groupby(["school", "year"]).agg(
+        ivy_wins  = ("win", "sum"),
+        ivy_games = ("win", "count"),
+        ivy_avg_margin = ("margin", "mean"),
+    ).reset_index()
+    ivy["ivy_win_pct"] = ivy["ivy_wins"] / ivy["ivy_games"]
+
+    return agg.merge(ivy, on=["school", "year"], how="left")
+
+
+# ---------------------------------------------------------------------------
 # Schedule / outcomes
 # ---------------------------------------------------------------------------
 

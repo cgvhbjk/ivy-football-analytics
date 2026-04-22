@@ -200,7 +200,12 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
 
     # Load any existing data so we can append without re-fetching
     def _load_existing(path):
-        return pd.read_csv(path).to_dict("records") if path.exists() else []
+        if not path.exists():
+            return []
+        try:
+            return pd.read_csv(path).to_dict("records")
+        except Exception:
+            return []
 
     all_stats     = _load_existing(root / "team_stats" / "team_stats_raw.csv")
     all_rosters   = list(pd.read_csv(root / "rosters" / "rosters_raw.csv").to_dict("records")) if (root / "rosters" / "rosters_raw.csv").exists() else []
