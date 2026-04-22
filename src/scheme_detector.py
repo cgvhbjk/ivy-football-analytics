@@ -25,10 +25,10 @@ from scipy.stats import zscore
 
 
 def _norm(series: pd.Series) -> pd.Series:
-    """Normalise a series to [0, 1] using min-max scaling."""
+    """Normalise a series to [0, 1] using min-max scaling. Preserves NaN."""
     mn, mx = series.min(), series.max()
-    if mx == mn:
-        return pd.Series(0.5, index=series.index)
+    if pd.isna(mn) or mx == mn:
+        return pd.Series(np.nan, index=series.index)
     return (series - mn) / (mx - mn)
 
 

@@ -151,25 +151,23 @@ def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
     df["points_per_game"] = col("points_for")
     df["points_allowed_per_game"] = col("points_against")
 
-    # Pace = offensive plays per game (rush attempts + pass attempts)
-    # Only set when box score data exists — NaN is more honest than using games count
-    rush = col("rushingAttempts", "rush_att")
-    pass_a = col("completionAttempts_att", "pass_att")
-    total_plays = rush + pass_a
-    df["pace_proxy"] = np.where(total_plays > 0, total_plays, np.nan)
-
     # --- From cfbd box scores or S-R exports ---
     rush_att  = col("rushingAttempts", "rush_att", "rushing_attempts", "RushAtt")
     pass_att  = col("completionAttempts_att", "pass_att", "passing_attempts", "PassAtt")
     total_att = rush_att + pass_att
-    df["pass_rate"] = np.where(total_att > 0, pass_att / total_att, np.nan)
-    df["rush_rate"] = np.where(total_att > 0, rush_att / total_att, np.nan)
+
+    # Only trust box-score-derived rates when we have ≥3 games of data
+    min_games = col("games_with_boxscore")
+    enough_games = min_games >= 3
+
+    df["pass_rate"] = np.where(enough_games & (total_att > 0), pass_att / total_att, np.nan)
+    df["rush_rate"] = np.where(enough_games & (total_att > 0), rush_att / total_att, np.nan)
 
     total_yards = col("totalYards", "total_yards", "yards", "Yds")
-    df["yards_per_play"] = np.where(total_att > 0, total_yards / total_att, np.nan)
+    df["yards_per_play"] = np.where(enough_games & (total_att > 0), total_yards / total_att, np.nan)
 
-    # Pace: plays per game (rushAtt + passAtt per game already averaged)
-    df["pace_proxy"] = np.where(total_att > 0, total_att, col("games"))
+    # Pace: plays per game — NaN when box scores unavailable or insufficient sample
+    df["pace_proxy"] = np.where(enough_games & (total_att > 0), total_att, np.nan)
 
     # Turnovers
     df["turnovers_per_game"] = col("turnovers", "turnovers_per_game")
@@ -188,10 +186,9 @@ def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
     sacks    = col("sacks", "sk", "Sacks")
     pbu      = col("passesDeflected", "pbu", "passes_defended", "PBU")
     def_plays = col("opp_plays", "def_plays", "plays_against")
-    # Use real def_plays if available; otherwise estimate ~70 plays/game as denominator
     denom = np.where(def_plays > 0, def_plays, 70.0)
     havoc_raw = tfl + sacks + pbu
-    df["havoc_rate"] = np.where(havoc_raw.notna() & (havoc_raw > 0), havoc_raw / denom, np.nan)
+    df["havoc_rate"] = np.where(enough_games & havoc_raw.notna() & (havoc_raw > 0), havoc_raw / denom, np.nan)
 
     return df
 

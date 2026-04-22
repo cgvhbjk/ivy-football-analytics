@@ -111,6 +111,8 @@ def build_game_dataset(master_df: pd.DataFrame, schedule_df: pd.DataFrame) -> pd
     """
     df = schedule_df.copy()
     df.columns = df.columns.str.lower()
+    if "year" in df.columns:
+        df = df[df["year"] >= 2014]
 
     opp_col = next((c for c in df.columns if c in ("opponent", "opp", "school_name")), None)
     result_col = next((c for c in df.columns if c in ("result", "w/l", "wl")), None)
@@ -119,11 +121,19 @@ def build_game_dataset(master_df: pd.DataFrame, schedule_df: pd.DataFrame) -> pd
 
     df["win"] = df[result_col].str.upper().str.startswith("W").astype(int)
 
+    # Normalise school/opponent names to lowercase so the merge matches
+    # CFBD schedules store opponents as title-case ("Harvard") while master
+    # stores schools as lowercase ("harvard") — without this they never join.
+    df["school"] = df["school"].str.lower()
+    df[opp_col] = df[opp_col].str.lower()
+
     feat_cols = [c for c in ROSTER_FEATURES + STYLE_FEATURES if c in master_df.columns]
     home_feats = master_df[["school", "year"] + feat_cols].copy()
+    home_feats["school"] = home_feats["school"].str.lower()
     home_feats.columns = ["school", "year"] + [f"home_{c}" for c in feat_cols]
 
     opp_feats = master_df[["school", "year"] + feat_cols].copy()
+    opp_feats["school"] = opp_feats["school"].str.lower()
     opp_feats.columns = [opp_col, "year"] + [f"opp_{c}" for c in feat_cols]
 
     df = df.merge(home_feats, on=["school", "year"], how="left")
@@ -146,6 +156,10 @@ def train_roster_model(game_df: pd.DataFrame,
     feature_cols = [c for c in game_df.columns
                     if (c.startswith("home_") and c != "home_away")
                     or c in ("opp_run_heavy", "opp_pass_heavy")]
+
+    # Drop columns with no data at all — a single all-NaN column would wipe
+    # every row in the subsequent dropna()
+    feature_cols = [c for c in feature_cols if game_df[c].notna().any()]
 
     df = game_df[feature_cols + ["win"]].dropna()
     if len(df) < 30:

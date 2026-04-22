@@ -260,7 +260,7 @@ def _already_fetched(root: Path, slug: str, year: int) -> tuple[bool, bool, bool
     )
 
 
-def scrape_all(start_year: int = 2005, end_year: int = 2024,
+def scrape_all(start_year: int = 2014, end_year: int = 2024,
                data_dir: str = "data/raw") -> None:
     """
     Scrape all Ivy schools via the CollegeFootballData API.
@@ -347,7 +347,7 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
     print("\nFetching rosters (recent years only)...")
     for slug, cfbd_name in IVY_CFBD_NAMES.items():
         print(f"\n  {slug}: ", end="", flush=True)
-        for year in range(max(start_year, 2022), end_year + 1):
+        for year in range(start_year, end_year + 1):
             _, has_roster, _ = _already_fetched(root, cfbd_name, year)
             if has_roster:
                 print(f"{year}[cached] ", end="", flush=True)

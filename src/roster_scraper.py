@@ -86,7 +86,9 @@ def _parse_players(nuxt_arr: list) -> list[dict]:
 
 
 # Schools that use plain HTML tables instead of Sidearm/Nuxt
-HTML_TABLE_SCHOOLS = {"harvard", "yale", "cornell", "pennsylvania"}
+# cornell removed — cornellbigred.com ignores the year path and always returns
+# the current roster, making all historical years identical duplicates.
+HTML_TABLE_SCHOOLS = {"harvard", "yale", "pennsylvania"}
 
 
 def _parse_ht(ht_str: str) -> float | None:
