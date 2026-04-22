@@ -1,0 +1,17 @@
+pandas
+numpy
+matplotlib
+seaborn
+statsmodels
+scikit-learn
+beautifulsoup4
+lxml
+requests
+plotly
+ipywidgets
+notebook
+sportsipy
+python-dateutil
+joblib
+pyquery
+scipy
