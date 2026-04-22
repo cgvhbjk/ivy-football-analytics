@@ -171,7 +171,7 @@ def cfbd_box_scores(team_name: str, year: int, api_key: str) -> pd.DataFrame:
             for s in team.get("stats", []):
                 cat, val = s.get("category"), s.get("stat", "")
                 # Parse fraction stats like "5-16" into numerator only
-                if "-" in str(val) and val.replace("-","").isdigit():
+                if "-" in str(val) and val.replace("-","").isdigit() and all(p != "" for p in val.split("-")):
                     parts = val.split("-")
                     row[cat] = int(parts[0])
                     row[f"{cat}_att"] = int(parts[1])
