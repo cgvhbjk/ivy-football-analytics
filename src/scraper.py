@@ -117,6 +117,41 @@ def cfbd_games(team_name: str, year: int, api_key: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def cfbd_all_ivy_games_year(year: int, api_key: str) -> pd.DataFrame:
+    """
+    Fetch ALL Ivy League games for a given year in ONE API call.
+    Returns rows for both teams' perspectives (home and away).
+    Costs 1 request per year instead of 1 per team — use this to conserve quota.
+    """
+    data = _cfbd_get("/games", {"year": year, "conference": "Ivy", "seasonType": "regular"}, api_key)
+    if not data:
+        return pd.DataFrame()
+    rows = []
+    for g in data:
+        home_team = g.get("homeTeam", "")
+        away_team = g.get("awayTeam", "")
+        home_pts  = g.get("homePoints")
+        away_pts  = g.get("awayPoints")
+        date = (g.get("startDate") or "")[:10]
+        conf = g.get("conferenceGame")
+        completed = g.get("completed")
+
+        for team, opp, pts, opp_pts, loc in [
+            (home_team, away_team, home_pts, away_pts, "home"),
+            (away_team, home_team, away_pts, home_pts, "away"),
+        ]:
+            if team.lower() not in {n.lower() for n in IVY_CFBD_NAMES.values()}:
+                continue
+            result = ("W" if pts > opp_pts else "L") if (pts is not None and opp_pts is not None) else None
+            rows.append({
+                "school": team.lower(), "year": year,
+                "date": date, "opponent": opp,
+                "result": result, "points": pts, "opp_points": opp_pts,
+                "home_away": loc, "conference_game": conf, "completed": completed,
+            })
+    return pd.DataFrame(rows)
+
+
 def cfbd_roster(team_name: str, year: int, api_key: str) -> pd.DataFrame:
     data = _cfbd_get("/roster", {"team": team_name, "year": year}, api_key)
     if not data:
@@ -218,46 +253,38 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
     requests_made = 0
     skipped = 0
 
+    # ── Phase 1: bulk game fetch (1 request per year for all 8 teams) ──────────
+    print("Fetching games (1 request/year for all Ivy teams)...")
+    years_needed = [y for y in range(start_year, end_year + 1)
+                    if not _already_fetched(root, "Brown", y)[2]]  # check any school
+    for year in years_needed:
+        print(f"  {year} ", end="", flush=True)
+        bulk = cfbd_all_ivy_games_year(year, api_key)
+        requests_made += 1
+        if not bulk.empty:
+            all_schedules.extend(bulk.to_dict("records"))
+            print("G", end="", flush=True)
+        else:
+            skipped += 1
+    pd.DataFrame(all_schedules).to_csv(root / "schedules" / "schedules_raw.csv", index=False)
+    print(f"\nGames saved: {len(all_schedules)} rows")
+
+    # ── Phase 2: rosters per team (only recent years where cfbd has data) ──────
+    print("\nFetching rosters (recent years only)...")
     for slug, cfbd_name in IVY_CFBD_NAMES.items():
-        print(f"\n=== {slug.upper()} ===")
-        for year in range(start_year, end_year + 1):
-            has_stats, has_roster, has_games = _already_fetched(root, cfbd_name, year)
-
-            if has_stats and has_roster and has_games:
-                skipped += 1
-                print(f"  {year} [cached]", end=" ", flush=True)
+        print(f"\n  {slug}: ", end="", flush=True)
+        for year in range(max(start_year, 2022), end_year + 1):
+            _, has_roster, _ = _already_fetched(root, cfbd_name, year)
+            if has_roster:
+                print(f"{year}[cached] ", end="", flush=True)
                 continue
-
-            print(f"  {year} ", end="", flush=True)
-
-            if not has_stats:
-                stats = cfbd_team_stats(cfbd_name, year, api_key)
-                adv   = cfbd_advanced_stats(cfbd_name, year, api_key)
-                requests_made += 2
-                if stats:
-                    stats.update(adv)
-                    all_stats.append(stats)
-                    print("S", end="", flush=True)
-
-            if not has_roster:
-                roster = cfbd_roster(cfbd_name, year, api_key)
-                requests_made += 1
-                if not roster.empty:
-                    all_rosters.extend(roster.to_dict("records"))
-                    print("R", end="", flush=True)
-
-            if not has_games:
-                games = cfbd_games(cfbd_name, year, api_key)
-                requests_made += 1
-                if not games.empty:
-                    all_schedules.extend(games.to_dict("records"))
-                    print("G", end="", flush=True)
-
-            # Save incrementally every school so a crash doesn't lose everything
-        pd.DataFrame(all_stats).to_csv(root / "team_stats" / "team_stats_raw.csv", index=False)
-        pd.DataFrame(all_rosters).to_csv(root / "rosters" / "rosters_raw.csv", index=False)
-        pd.DataFrame(all_schedules).to_csv(root / "schedules" / "schedules_raw.csv", index=False)
-        print()
+            roster = cfbd_roster(cfbd_name, year, api_key)
+            requests_made += 1
+            if not roster.empty:
+                all_rosters.extend(roster.to_dict("records"))
+                print(f"{year}R ", end="", flush=True)
+    pd.DataFrame(all_rosters).to_csv(root / "rosters" / "rosters_raw.csv", index=False)
+    print(f"\nRosters saved: {len(all_rosters)} rows")
 
     print(f"\nDone.  API requests made this run: {requests_made}  |  Years skipped (cached): {skipped}")
     print(f"Saved: {len(all_stats)} stat rows, {len(all_rosters)} roster rows, {len(all_schedules)} game rows")
