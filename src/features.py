@@ -152,11 +152,11 @@ def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
     df["points_allowed_per_game"] = col("points_against")
 
     # Pace = offensive plays per game (rush attempts + pass attempts)
-    # Use box score columns when available, fall back to game count
+    # Only set when box score data exists — NaN is more honest than using games count
     rush = col("rushingAttempts", "rush_att")
     pass_a = col("completionAttempts_att", "pass_att")
     total_plays = rush + pass_a
-    df["pace_proxy"] = np.where(total_plays > 0, total_plays, col("games"))
+    df["pace_proxy"] = np.where(total_plays > 0, total_plays, np.nan)
 
     # --- From cfbd box scores or S-R exports ---
     rush_att  = col("rushingAttempts", "rush_att", "rushing_attempts", "RushAtt")
@@ -184,11 +184,14 @@ def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
     if "possessionTime" in df.columns:
         df["possession_min"] = df["possessionTime"].apply(parse_possession)
 
-    tfl      = col("tfl", "tackles_for_loss", "TFL")
+    tfl      = col("tacklesForLoss", "tfl", "tackles_for_loss", "TFL")
     sacks    = col("sacks", "sk", "Sacks")
-    pbu      = col("pbu", "passes_defended", "passesIntercepted", "PBU")
+    pbu      = col("passesDeflected", "pbu", "passes_defended", "PBU")
     def_plays = col("opp_plays", "def_plays", "plays_against")
-    df["havoc_rate"] = np.where(def_plays > 0, (tfl + sacks + pbu) / def_plays, np.nan)
+    # Use real def_plays if available; otherwise estimate ~70 plays/game as denominator
+    denom = np.where(def_plays > 0, def_plays, 70.0)
+    havoc_raw = tfl + sacks + pbu
+    df["havoc_rate"] = np.where(havoc_raw.notna() & (havoc_raw > 0), havoc_raw / denom, np.nan)
 
     return df
 
