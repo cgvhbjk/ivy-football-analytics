@@ -148,10 +148,15 @@ def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
         return pd.Series(np.nan, index=df.index)
 
     # --- From game-derived data (always available) ---
-    # points_for / points_against are per-game averages from build_stats_from_games
-    df["pace_proxy"] = col("games")  # placeholder; real pace needs play data
     df["points_per_game"] = col("points_for")
     df["points_allowed_per_game"] = col("points_against")
+
+    # Pace = offensive plays per game (rush attempts + pass attempts)
+    # Use box score columns when available, fall back to game count
+    rush = col("rushingAttempts", "rush_att")
+    pass_a = col("completionAttempts_att", "pass_att")
+    total_plays = rush + pass_a
+    df["pace_proxy"] = np.where(total_plays > 0, total_plays, col("games"))
 
     # --- From cfbd box scores or S-R exports ---
     rush_att  = col("rushingAttempts", "rush_att", "rushing_attempts", "RushAtt")
