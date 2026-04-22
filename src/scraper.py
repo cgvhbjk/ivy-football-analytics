@@ -326,12 +326,16 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
                 else:
                     print(f"{year}✗", end="", flush=True)
 
-            if not has_box:
+            # cfbd box scores for FCS teams only exist from ~2014 onward
+            if not has_box and year >= 2014:
                 box = cfbd_season_stats_from_box(cfbd_name, year, api_key)
                 requests_made += 1
                 if box:
                     all_box.append(box)
                     print(f"B", end="", flush=True)
+                else:
+                    # Save a sentinel so we never retry this year
+                    all_box.append({"school": cfbd_name.lower(), "year": year, "no_data": True})
 
             print(" ", end="", flush=True)
 
