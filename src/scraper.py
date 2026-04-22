@@ -1,14 +1,18 @@
 """
-Scraping utilities for Ivy League NCAAF data.
-Primary: sportsipy (wraps Sports-Reference with proper rate limiting).
-Fallback: direct requests with browser headers.
+Ivy League NCAAF data collection.
+
+PRIMARY: CollegeFootballData API (cfbd) — free key at https://collegefootballdata.com/key
+  Set CFBD_API_KEY in a .env file or as an environment variable.
+
+FALLBACK: Sports-Reference HTML scrape (FBS only via sportsipy; Ivy/FCS teams
+  are frequently 403'd because S-R blocks automated requests for FCS pages).
 """
 
+import os
 import time
 import random
 import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 from pathlib import Path
 
 IVY_SCHOOLS = {
@@ -22,168 +26,129 @@ IVY_SCHOOLS = {
     "yale":      "yale",
 }
 
-BASE_URL = "https://www.sports-reference.com/cfb/schools"
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
+# Full team names as cfbd knows them
+IVY_CFBD_NAMES = {
+    "brown":     "Brown",
+    "columbia":  "Columbia",
+    "cornell":   "Cornell",
+    "dartmouth": "Dartmouth",
+    "harvard":   "Harvard",
+    "penn":      "Pennsylvania",
+    "princeton": "Princeton",
+    "yale":      "Yale",
 }
 
-
-def _get(url: str, session: requests.Session, min_delay: float = 4.0) -> BeautifulSoup | None:
-    time.sleep(min_delay + random.uniform(0, 2))
-    try:
-        r = session.get(url, headers=HEADERS, timeout=30)
-        r.raise_for_status()
-        return BeautifulSoup(r.text, "lxml")
-    except Exception as e:
-        print(f"  [warn] {e}")
-        return None
+CFBD_BASE = "https://api.collegefootballdata.com"
 
 
-# ── sportsipy-based collection ────────────────────────────────────────────────
+def _cfbd_headers(api_key: str) -> dict:
+    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
-def _sportsipy_team_stats(slug: str, year: int) -> dict | None:
-    try:
-        from sportsipy.ncaaf.teams import Teams
-        teams = Teams(year)
-        for team in teams:
-            if team.abbreviation and team.abbreviation.lower() == slug.lower():
-                row = {"school": slug, "year": year}
-                for attr in [
-                    "games", "wins", "losses", "points_per_game",
-                    "points_against_per_game", "yards_per_play",
-                    "pass_attempts", "rush_attempts",
-                    "pass_yards", "rush_yards",
-                    "turnovers", "fumbles_lost",
-                    "first_downs", "third_down_conversions", "third_down_attempts",
-                ]:
-                    try:
-                        row[attr] = getattr(team, attr, None)
-                    except Exception:
-                        pass
-                return row
-    except Exception as e:
-        print(f"  [sportsipy warn] {e}")
+
+def _get_api_key() -> str | None:
+    # Check env var first, then .env file
+    key = os.environ.get("CFBD_API_KEY")
+    if key:
+        return key
+    env_path = Path(".env")
+    if not env_path.exists():
+        env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if line.startswith("CFBD_API_KEY="):
+                return line.split("=", 1)[1].strip()
     return None
 
 
-def _sportsipy_schedule(slug: str, year: int) -> pd.DataFrame:
+# ── cfbd API calls ────────────────────────────────────────────────────────────
+
+def _cfbd_get(endpoint: str, params: dict, api_key: str) -> list:
+    time.sleep(0.5)  # cfbd allows ~600 req/min
     try:
-        from sportsipy.ncaaf.schedule import Schedule
-        sched = Schedule(slug.upper(), year=year)
-        rows = []
-        for game in sched:
-            rows.append({
-                "school": slug, "year": year,
-                "date": getattr(game, "date", None),
-                "opponent": getattr(game, "opponent_name", None),
-                "result": getattr(game, "result", None),
-                "points": getattr(game, "points", None),
-                "opp_points": getattr(game, "opponent_points", None),
-                "location": getattr(game, "location", None),
-            })
-        return pd.DataFrame(rows)
+        r = requests.get(
+            f"{CFBD_BASE}{endpoint}",
+            headers=_cfbd_headers(api_key),
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
     except Exception as e:
-        print(f"  [sportsipy warn] {e}")
-        return pd.DataFrame()
+        print(f"  [cfbd warn] {endpoint} {params}: {e}")
+        return []
 
 
-def _sportsipy_roster(slug: str, year: int) -> pd.DataFrame:
-    try:
-        from sportsipy.ncaaf.roster import Roster
-        roster = Roster(slug.upper(), year=year)
-        rows = []
-        for player in roster.players:
-            rows.append({
-                "school": slug, "year": year,
-                "name": getattr(player, "name", None),
-                "position": getattr(player, "position", None),
-                "height": getattr(player, "height", None),
-                "weight": getattr(player, "weight", None),
-                "year_class": getattr(player, "year", None),
-            })
-        return pd.DataFrame(rows)
-    except Exception as e:
-        print(f"  [sportsipy warn] {e}")
-        return pd.DataFrame()
-
-
-# ── fallback: direct HTML scrape with browser session ────────────────────────
-
-def _html_team_stats(slug: str, year: int, session: requests.Session) -> dict | None:
-    url = f"{BASE_URL}/{slug}/{year}.html"
-    soup = _get(url, session)
-    if soup is None:
+def cfbd_team_stats(team_name: str, year: int, api_key: str) -> dict | None:
+    data = _cfbd_get("/stats/season", {"year": year, "team": team_name}, api_key)
+    if not data:
         return None
-
-    stats = {"school": slug, "year": year}
-    for table_id, prefix in [("team_stats", ""), ("opp_stats", "opp_")]:
-        tbl = soup.find("table", {"id": table_id})
-        if not tbl:
-            continue
-        for row in tbl.find_all("tr"):
-            cells = row.find_all(["th", "td"])
-            if len(cells) >= 2:
-                label = prefix + cells[0].get_text(strip=True).lower().replace(" ", "_").replace("/", "_per_")
-                value = cells[1].get_text(strip=True)
-                try:
-                    stats[label] = float(value.replace(",", "").replace("%", ""))
-                except ValueError:
-                    stats[label] = value
-    return stats if len(stats) > 2 else None
+    row = {"school": team_name.lower(), "year": year}
+    for item in data:
+        stat = item.get("statName", "").lower().replace(" ", "_")
+        row[stat] = item.get("statValue")
+    return row if len(row) > 2 else None
 
 
-def _html_roster(slug: str, year: int, session: requests.Session) -> pd.DataFrame:
-    url = f"{BASE_URL}/{slug}/roster/{year}.html"
-    soup = _get(url, session)
-    if soup is None:
-        return pd.DataFrame()
-    tbl = soup.find("table", {"id": "roster"})
-    if tbl is None:
+def cfbd_games(team_name: str, year: int, api_key: str) -> pd.DataFrame:
+    data = _cfbd_get("/games", {"year": year, "team": team_name, "seasonType": "regular"}, api_key)
+    if not data:
         return pd.DataFrame()
     rows = []
-    headers = [th.get_text(strip=True) for th in tbl.find("thead").find_all("th")]
-    for tr in tbl.find("tbody").find_all("tr"):
-        if tr.get("class") and "thead" in tr["class"]:
-            continue
-        cells = [td.get_text(strip=True) for td in tr.find_all(["th", "td"])]
-        if cells:
-            rows.append(dict(zip(headers, cells)))
-    df = pd.DataFrame(rows)
-    df["school"] = slug
-    df["year"] = year
-    return df
-
-
-def _html_schedule(slug: str, year: int, session: requests.Session) -> pd.DataFrame:
-    url = f"{BASE_URL}/{slug}/schedule/{year}.html"
-    soup = _get(url, session)
-    if soup is None:
-        return pd.DataFrame()
-    tbl = soup.find("table", {"id": "schedule"})
-    if tbl is None:
-        return pd.DataFrame()
-    rows = []
-    headers = [th.get_text(strip=True) for th in tbl.find("thead").find_all("th")]
-    for tr in tbl.find("tbody").find_all("tr"):
-        if tr.get("class") and "thead" in tr["class"]:
-            continue
-        cells = [td.get_text(strip=True) for td in tr.find_all(["th", "td"])]
-        if cells:
-            row = dict(zip(headers, cells))
-            row["school"] = slug
-            row["year"] = year
-            rows.append(row)
+    for g in data:
+        home = g.get("home_team") == team_name
+        opponent = g.get("away_team") if home else g.get("home_team")
+        pts = g.get("home_points") if home else g.get("away_points")
+        opp_pts = g.get("away_points") if home else g.get("home_points")
+        result = "W" if (pts is not None and opp_pts is not None and pts > opp_pts) else "L"
+        rows.append({
+            "school": team_name.lower(), "year": year,
+            "date": g.get("start_date", "")[:10],
+            "opponent": opponent,
+            "result": result,
+            "points": pts,
+            "opp_points": opp_pts,
+            "home_away": "home" if home else "away",
+            "conference_game": g.get("conference_game"),
+        })
     return pd.DataFrame(rows)
+
+
+def cfbd_roster(team_name: str, year: int, api_key: str) -> pd.DataFrame:
+    data = _cfbd_get("/roster", {"team": team_name, "year": year}, api_key)
+    if not data:
+        return pd.DataFrame()
+    rows = []
+    for p in data:
+        rows.append({
+            "school": team_name.lower(), "year": year,
+            "name": f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
+            "position": p.get("position"),
+            "height": p.get("height"),
+            "weight": p.get("weight"),
+            "year_class": p.get("year"),
+            "hometown": p.get("home_city"),
+            "home_state": p.get("home_state"),
+        })
+    return pd.DataFrame(rows)
+
+
+def cfbd_advanced_stats(team_name: str, year: int, api_key: str) -> dict:
+    """Pull advanced team stats (EPA, success rate, havoc, etc.)."""
+    data = _cfbd_get("/stats/season/advanced",
+                     {"year": year, "team": team_name, "excludeGarbageTime": "true"},
+                     api_key)
+    if not data:
+        return {}
+    row = {}
+    for item in data:
+        if isinstance(item, dict):
+            off = item.get("offense", {})
+            def_ = item.get("defense", {})
+            for k, v in off.items():
+                row[f"off_{k}"] = v
+            for k, v in def_.items():
+                row[f"def_{k}"] = v
+    return row
 
 
 # ── main scrape loop ──────────────────────────────────────────────────────────
@@ -191,59 +156,54 @@ def _html_schedule(slug: str, year: int, session: requests.Session) -> pd.DataFr
 def scrape_all(start_year: int = 2005, end_year: int = 2024,
                data_dir: str = "data/raw") -> None:
     """
-    Scrape all Ivy schools. Tries sportsipy first, falls back to direct HTML.
-    Saves CSVs under data_dir/{team_stats,rosters,schedules}/.
+    Scrape all Ivy schools via the CollegeFootballData API.
+    Requires CFBD_API_KEY set in .env or environment.
+    Get a free key at: https://collegefootballdata.com/key
     """
+    api_key = _get_api_key()
+    if not api_key:
+        print("=" * 60)
+        print("  CFBD_API_KEY not found.")
+        print("  1. Get a free key at: https://collegefootballdata.com/key")
+        print("  2. Create a file called .env in the ivy-football-analytics folder")
+        print("  3. Add this line:  CFBD_API_KEY=your_key_here")
+        print("  4. Restart the notebook kernel and re-run this cell")
+        print("=" * 60)
+        return
+
     root = Path(data_dir)
     for d in ["team_stats", "rosters", "schedules"]:
         (root / d).mkdir(parents=True, exist_ok=True)
 
-    # Warm up a browser-like session for the HTML fallback
-    session = requests.Session()
-    session.headers.update(HEADERS)
-    # Visit the main page once to get cookies
-    try:
-        session.get("https://www.sports-reference.com/cfb/", timeout=15)
-        time.sleep(3)
-    except Exception:
-        pass
-
     all_stats, all_rosters, all_schedules = [], [], []
 
-    for display, slug in IVY_SCHOOLS.items():
-        print(f"\n=== {display.upper()} ===")
+    for slug, cfbd_name in IVY_CFBD_NAMES.items():
+        print(f"\n=== {slug.upper()} ===")
         for year in range(start_year, end_year + 1):
             print(f"  {year} ", end="", flush=True)
 
-            # ── team stats ──
-            stats = _sportsipy_team_stats(slug, year)
-            if not stats:
-                stats = _html_team_stats(slug, year, session)
+            stats = cfbd_team_stats(cfbd_name, year, api_key)
+            adv = cfbd_advanced_stats(cfbd_name, year, api_key)
             if stats:
+                stats.update(adv)
                 all_stats.append(stats)
                 print("S", end="", flush=True)
 
-            # ── roster ──
-            roster = _sportsipy_roster(slug, year)
-            if roster.empty:
-                roster = _html_roster(slug, year, session)
+            roster = cfbd_roster(cfbd_name, year, api_key)
             if not roster.empty:
                 all_rosters.append(roster)
                 print("R", end="", flush=True)
 
-            # ── schedule ──
-            schedule = _sportsipy_schedule(slug, year)
-            if schedule.empty:
-                schedule = _html_schedule(slug, year, session)
-            if not schedule.empty:
-                all_schedules.append(schedule)
+            games = cfbd_games(cfbd_name, year, api_key)
+            if not games.empty:
+                all_schedules.append(games)
                 print("G", end="", flush=True)
 
         print()
 
     if all_stats:
         pd.DataFrame(all_stats).to_csv(root / "team_stats" / "team_stats_raw.csv", index=False)
-        print(f"\nSaved team_stats_raw.csv ({len(all_stats)} rows)")
+        print(f"\nSaved team_stats_raw.csv  ({len(all_stats)} rows)")
     if all_rosters:
         pd.concat(all_rosters, ignore_index=True).to_csv(root / "rosters" / "rosters_raw.csv", index=False)
         print(f"Saved rosters_raw.csv")
@@ -251,4 +211,4 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
         pd.concat(all_schedules, ignore_index=True).to_csv(root / "schedules" / "schedules_raw.csv", index=False)
         print(f"Saved schedules_raw.csv")
     if not any([all_stats, all_rosters, all_schedules]):
-        print("\n[!] No data collected. Sports-Reference may be rate-limiting — wait 10 min and retry.")
+        print("\n[!] No data collected. Check your API key and try again.")
