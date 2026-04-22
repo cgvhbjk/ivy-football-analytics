@@ -185,8 +185,9 @@ def build_stats_from_games(schedule_df: pd.DataFrame) -> pd.DataFrame:
     df = schedule_df.copy()
     df["points"]     = pd.to_numeric(df.get("points"),     errors="coerce")
     df["opp_points"] = pd.to_numeric(df.get("opp_points"), errors="coerce")
-    df["win"]        = (df["result"].str.upper() == "W").astype(int)
-    df["margin"]     = df["points"] - df["opp_points"]
+    # Use stored result column — don't recompute from points which are null for older FCS games
+    df["win"]    = df["result"].fillna("").str.upper().str.startswith("W").astype(int)
+    df["margin"] = df["points"] - df["opp_points"]
 
     agg = df.groupby(["school", "year"]).agg(
         games         = ("win", "count"),
@@ -199,8 +200,8 @@ def build_stats_from_games(schedule_df: pd.DataFrame) -> pd.DataFrame:
     agg["point_diff"]= agg["points_for"] - agg["points_against"]
 
     # Ivy-only subset
-    ivy_mask = df["opponent"].str.lower().apply(
-        lambda x: any(s in str(x).lower() for s in IVY_CFBD_NAMES)
+    ivy_mask = df["opponent"].fillna("").str.lower().apply(
+        lambda x: any(s in x for s in IVY_CFBD_NAMES)
     )
     ivy = df[ivy_mask].groupby(["school", "year"]).agg(
         ivy_wins  = ("win", "sum"),

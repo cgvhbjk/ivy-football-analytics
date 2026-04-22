@@ -95,20 +95,24 @@ def cfbd_games(team_name: str, year: int, api_key: str) -> pd.DataFrame:
         return pd.DataFrame()
     rows = []
     for g in data:
-        home = g.get("home_team") == team_name
-        opponent = g.get("away_team") if home else g.get("home_team")
-        pts = g.get("home_points") if home else g.get("away_points")
-        opp_pts = g.get("away_points") if home else g.get("home_points")
-        result = "W" if (pts is not None and opp_pts is not None and pts > opp_pts) else "L"
+        home = g.get("homeTeam") == team_name
+        opponent = g.get("awayTeam") if home else g.get("homeTeam")
+        pts = g.get("homePoints") if home else g.get("awayPoints")
+        opp_pts = g.get("awayPoints") if home else g.get("homePoints")
+        if pts is not None and opp_pts is not None:
+            result = "W" if pts > opp_pts else "L"
+        else:
+            result = None
         rows.append({
             "school": team_name.lower(), "year": year,
-            "date": g.get("start_date", "")[:10],
+            "date": (g.get("startDate") or "")[:10],
             "opponent": opponent,
             "result": result,
             "points": pts,
             "opp_points": opp_pts,
             "home_away": "home" if home else "away",
-            "conference_game": g.get("conference_game"),
+            "conference_game": g.get("conferenceGame"),
+            "completed": g.get("completed"),
         })
     return pd.DataFrame(rows)
 
