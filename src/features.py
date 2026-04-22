@@ -59,24 +59,32 @@ def build_roster_features(roster_df: pd.DataFrame) -> pd.DataFrame:
     """
     df = roster_df.copy()
 
-    # Normalise column names (S-R uses Ht / Wt)
+    # Normalise column names — handle both site-scraped and S-R naming
     col_map = {}
     for c in df.columns:
         cl = c.lower().strip()
-        if cl in ("ht", "height"):
-            col_map[c] = "height_raw"
-        elif cl in ("wt", "weight"):
-            col_map[c] = "weight_raw"
+        if cl in ("ht", "height", "height_raw") and "height_in" not in df.columns:
+            col_map[c] = "height_in_raw"
+        elif cl in ("wt", "weight", "weight_raw") and "weight_lbs" not in df.columns:
+            col_map[c] = "weight_lbs_raw"
         elif cl in ("pos", "position"):
             col_map[c] = "pos"
-        elif cl in ("cl", "class", "yr", "year_cls"):
+        elif cl in ("cl", "class", "yr", "year_cls", "year_class"):
             col_map[c] = "class_yr"
     df = df.rename(columns=col_map)
 
-    if "height_raw" in df.columns:
-        df["height_in"] = df["height_raw"].apply(parse_height)
-    if "weight_raw" in df.columns:
-        df["weight_lbs"] = df["weight_raw"].apply(parse_weight)
+    # Parse height/weight if they came in as strings; site-scraped data is already numeric
+    if "height_in_raw" in df.columns:
+        df["height_in"] = df["height_in_raw"].apply(parse_height)
+    if "weight_lbs_raw" in df.columns:
+        df["weight_lbs"] = df["weight_lbs_raw"].apply(parse_weight)
+
+    # Ensure numeric
+    if "height_in" in df.columns:
+        df["height_in"] = pd.to_numeric(df["height_in"], errors="coerce")
+    if "weight_lbs" in df.columns:
+        df["weight_lbs"] = pd.to_numeric(df["weight_lbs"], errors="coerce")
+
     if "pos" in df.columns:
         df["pos_group"] = df["pos"].apply(classify_position_group)
 
@@ -128,42 +136,43 @@ def build_roster_features(roster_df: pd.DataFrame) -> pd.DataFrame:
 
 def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute derived metrics from the raw team stats CSV.
-    Column names from S-R vary; we attempt multiple aliases.
+    Compute derived metrics from the team stats CSV.
+    Works with both game-derived stats and S-R exports.
     """
     df = stats_df.copy()
 
     def col(*aliases):
         for a in aliases:
             if a in df.columns:
-                return df[a]
+                return pd.to_numeric(df[a], errors="coerce")
         return pd.Series(np.nan, index=df.index)
 
-    # --- Offensive ---
-    rush_att = col("rush_att", "rushing_attempts", "g_rush")
-    pass_att = col("pass_att", "passing_attempts", "g_pass")
+    # --- From game-derived data (always available) ---
+    # points_for / points_against are per-game averages from build_stats_from_games
+    df["pace_proxy"] = col("games")  # placeholder; real pace needs play data
+    df["points_per_game"] = col("points_for")
+    df["points_allowed_per_game"] = col("points_against")
+
+    # --- From S-R exports (available if user imports CSVs) ---
+    rush_att  = col("rush_att", "rushing_attempts", "RushAtt")
+    pass_att  = col("pass_att", "passing_attempts", "PassAtt")
     total_att = rush_att + pass_att
-    df["pass_rate"] = pass_att / total_att
-    df["rush_rate"] = rush_att / total_att
+    df["pass_rate"] = np.where(total_att > 0, pass_att / total_att, np.nan)
+    df["rush_rate"] = np.where(total_att > 0, rush_att / total_att, np.nan)
 
-    total_yards = col("total_yards", "yards", "tot_yds")
-    total_plays = col("plays", "total_plays", "tot_plays")
-    df["yards_per_play"] = total_yards / total_plays
+    total_yards = col("total_yards", "yards", "tot_yds", "Yds")
+    total_plays = col("plays", "total_plays", "tot_plays", "Plays")
+    df["yards_per_play"] = np.where(total_plays > 0, total_yards / total_plays, np.nan)
 
-    pts = col("points", "pts", "pts_per_game") * col("games", "g", "gm").fillna(1)
-    possessions = col("drives", "poss") if "drives" in df.columns or "poss" in df.columns else total_plays / 14
-    df["points_per_possession"] = pts / possessions
+    pts       = col("points", "pts", "Pts") * col("games", "G", "gm").fillna(1)
+    drives    = col("drives", "poss", "Drives")
+    df["points_per_possession"] = np.where(drives > 0, pts / drives, np.nan)
 
-    # --- Defensive havoc proxy ---
-    tfl = col("tfl", "tackles_for_loss")
-    sacks = col("sacks", "sk")
-    pbu = col("pbu", "passes_defended", "pass_breakups")
+    tfl      = col("tfl", "tackles_for_loss", "TFL")
+    sacks    = col("sacks", "sk", "Sacks")
+    pbu      = col("pbu", "passes_defended", "PBU")
     def_plays = col("opp_plays", "def_plays", "plays_against")
-    df["havoc_rate"] = (tfl + sacks + pbu) / def_plays
-
-    # --- Pace (plays per minute of possession) ---
-    # S-R doesn't always have ToP; use plays per game as proxy
-    df["pace_proxy"] = total_plays / col("games", "g", "gm").fillna(1)
+    df["havoc_rate"] = np.where(def_plays > 0, (tfl + sacks + pbu) / def_plays, np.nan)
 
     return df
 
