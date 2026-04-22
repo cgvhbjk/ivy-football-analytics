@@ -253,19 +253,25 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
     requests_made = 0
     skipped = 0
 
-    # ── Phase 1: bulk game fetch (1 request per year for all 8 teams) ──────────
-    print("Fetching games (1 request/year for all Ivy teams)...")
-    years_needed = [y for y in range(start_year, end_year + 1)
-                    if not _already_fetched(root, "Brown", y)[2]]  # check any school
-    for year in years_needed:
-        print(f"  {year} ", end="", flush=True)
-        bulk = cfbd_all_ivy_games_year(year, api_key)
-        requests_made += 1
-        if not bulk.empty:
-            all_schedules.extend(bulk.to_dict("records"))
-            print("G", end="", flush=True)
-        else:
-            skipped += 1
+    # ── Phase 1: game fetch per team per year ────────────────────────────────────
+    # cfbd conference filter returns 0 results for FCS teams, so fetch per team.
+    # Cost: 8 teams × N years (e.g. 32 for test mode, 160 for full run).
+    print("Fetching games (per team)...")
+    for slug, cfbd_name in IVY_CFBD_NAMES.items():
+        print(f"\n  {slug}: ", end="", flush=True)
+        for year in range(start_year, end_year + 1):
+            _, _, has_games = _already_fetched(root, cfbd_name, year)
+            if has_games:
+                print(f"{year}✓ ", end="", flush=True)
+                skipped += 1
+                continue
+            games = cfbd_games(cfbd_name, year, api_key)
+            requests_made += 1
+            if not games.empty:
+                all_schedules.extend(games.to_dict("records"))
+                print(f"{year}G ", end="", flush=True)
+            else:
+                print(f"{year}✗ ", end="", flush=True)
     pd.DataFrame(all_schedules).to_csv(root / "schedules" / "schedules_raw.csv", index=False)
     print(f"\nGames saved: {len(all_schedules)} rows")
 
