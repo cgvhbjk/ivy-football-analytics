@@ -152,6 +152,52 @@ def cfbd_all_ivy_games_year(year: int, api_key: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def cfbd_box_scores(team_name: str, year: int, api_key: str) -> pd.DataFrame:
+    """
+    Fetch per-game box score stats for a team (totalYards, pass/rush yards,
+    attempts, turnovers, possession time, etc.) and return as one row per game.
+    """
+    data = _cfbd_get("/games/teams", {"year": year, "team": team_name, "seasonType": "regular"}, api_key)
+    if not data:
+        return pd.DataFrame()
+
+    rows = []
+    for game in data:
+        game_id = game.get("id")
+        for team in game.get("teams", []):
+            if team.get("team") != team_name:
+                continue
+            row = {"school": team_name.lower(), "year": year, "game_id": game_id}
+            for s in team.get("stats", []):
+                cat, val = s.get("category"), s.get("stat", "")
+                # Parse fraction stats like "5-16" into numerator only
+                if "-" in str(val) and val.replace("-","").isdigit():
+                    parts = val.split("-")
+                    row[cat] = int(parts[0])
+                    row[f"{cat}_att"] = int(parts[1])
+                else:
+                    try:
+                        row[cat] = float(val)
+                    except (ValueError, TypeError):
+                        row[cat] = val
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def cfbd_season_stats_from_box(team_name: str, year: int, api_key: str) -> dict | None:
+    """Aggregate per-game box scores into season averages."""
+    df = cfbd_box_scores(team_name, year, api_key)
+    if df.empty:
+        return None
+
+    num = df.select_dtypes(include="number").drop(columns=["year", "game_id"], errors="ignore")
+    means = num.mean().to_dict()
+    means["school"] = team_name.lower()
+    means["year"] = year
+    means["games_with_boxscore"] = len(df)
+    return means
+
+
 def cfbd_roster(team_name: str, year: int, api_key: str) -> pd.DataFrame:
     data = _cfbd_get("/roster", {"team": team_name, "year": year}, api_key)
     if not data:
@@ -253,26 +299,44 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
     requests_made = 0
     skipped = 0
 
-    # ── Phase 1: game fetch per team per year ────────────────────────────────────
-    # cfbd conference filter returns 0 results for FCS teams, so fetch per team.
-    # Cost: 8 teams × N years (e.g. 32 for test mode, 160 for full run).
-    print("Fetching games (per team)...")
+    # ── Phase 1: game results + box score stats per team per year ────────────────
+    # cfbd conference filter returns 0 for FCS, so fetch per team.
+    # Cost: 8 teams × N years × 2 calls (games + box scores)
+    box_path = root / "team_stats" / "box_stats_raw.csv"
+    all_box = _load_existing(box_path)
+
+    print("Fetching games + box score stats (per team)...")
     for slug, cfbd_name in IVY_CFBD_NAMES.items():
         print(f"\n  {slug}: ", end="", flush=True)
         for year in range(start_year, end_year + 1):
             _, _, has_games = _already_fetched(root, cfbd_name, year)
-            if has_games:
+            has_box = any(r.get("school") == cfbd_name.lower() and r.get("year") == year for r in all_box)
+
+            if has_games and has_box:
                 print(f"{year}✓ ", end="", flush=True)
                 skipped += 1
                 continue
-            games = cfbd_games(cfbd_name, year, api_key)
-            requests_made += 1
-            if not games.empty:
-                all_schedules.extend(games.to_dict("records"))
-                print(f"{year}G ", end="", flush=True)
-            else:
-                print(f"{year}✗ ", end="", flush=True)
+
+            if not has_games:
+                games = cfbd_games(cfbd_name, year, api_key)
+                requests_made += 1
+                if not games.empty:
+                    all_schedules.extend(games.to_dict("records"))
+                    print(f"{year}G", end="", flush=True)
+                else:
+                    print(f"{year}✗", end="", flush=True)
+
+            if not has_box:
+                box = cfbd_season_stats_from_box(cfbd_name, year, api_key)
+                requests_made += 1
+                if box:
+                    all_box.append(box)
+                    print(f"B", end="", flush=True)
+
+            print(" ", end="", flush=True)
+
     pd.DataFrame(all_schedules).to_csv(root / "schedules" / "schedules_raw.csv", index=False)
+    pd.DataFrame(all_box).to_csv(box_path, index=False)
     print(f"\nGames saved: {len(all_schedules)} rows")
 
     # ── Phase 2: rosters per team (only recent years where cfbd has data) ──────

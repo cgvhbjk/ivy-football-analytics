@@ -153,24 +153,35 @@ def build_team_metrics(stats_df: pd.DataFrame) -> pd.DataFrame:
     df["points_per_game"] = col("points_for")
     df["points_allowed_per_game"] = col("points_against")
 
-    # --- From S-R exports (available if user imports CSVs) ---
-    rush_att  = col("rush_att", "rushing_attempts", "RushAtt")
-    pass_att  = col("pass_att", "passing_attempts", "PassAtt")
+    # --- From cfbd box scores or S-R exports ---
+    rush_att  = col("rushingAttempts", "rush_att", "rushing_attempts", "RushAtt")
+    pass_att  = col("completionAttempts_att", "pass_att", "passing_attempts", "PassAtt")
     total_att = rush_att + pass_att
     df["pass_rate"] = np.where(total_att > 0, pass_att / total_att, np.nan)
     df["rush_rate"] = np.where(total_att > 0, rush_att / total_att, np.nan)
 
-    total_yards = col("total_yards", "yards", "tot_yds", "Yds")
-    total_plays = col("plays", "total_plays", "tot_plays", "Plays")
-    df["yards_per_play"] = np.where(total_plays > 0, total_yards / total_plays, np.nan)
+    total_yards = col("totalYards", "total_yards", "yards", "Yds")
+    df["yards_per_play"] = np.where(total_att > 0, total_yards / total_att, np.nan)
 
-    pts       = col("points", "pts", "Pts") * col("games", "G", "gm").fillna(1)
-    drives    = col("drives", "poss", "Drives")
-    df["points_per_possession"] = np.where(drives > 0, pts / drives, np.nan)
+    # Pace: plays per game (rushAtt + passAtt per game already averaged)
+    df["pace_proxy"] = np.where(total_att > 0, total_att, col("games"))
+
+    # Turnovers
+    df["turnovers_per_game"] = col("turnovers", "turnovers_per_game")
+
+    # Possession time in minutes
+    def parse_possession(s):
+        try:
+            parts = str(s).split(":")
+            return int(parts[0]) + int(parts[1]) / 60
+        except Exception:
+            return np.nan
+    if "possessionTime" in df.columns:
+        df["possession_min"] = df["possessionTime"].apply(parse_possession)
 
     tfl      = col("tfl", "tackles_for_loss", "TFL")
     sacks    = col("sacks", "sk", "Sacks")
-    pbu      = col("pbu", "passes_defended", "PBU")
+    pbu      = col("pbu", "passes_defended", "passesIntercepted", "PBU")
     def_plays = col("opp_plays", "def_plays", "plays_against")
     df["havoc_rate"] = np.where(def_plays > 0, (tfl + sacks + pbu) / def_plays, np.nan)
 
