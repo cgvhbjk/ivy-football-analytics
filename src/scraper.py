@@ -160,7 +160,7 @@ def cfbd_roster(team_name: str, year: int, api_key: str) -> pd.DataFrame:
     for p in data:
         rows.append({
             "school": team_name.lower(), "year": year,
-            "name": f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
+            "name": f"{p.get('firstName', p.get('first_name',''))} {p.get('lastName', p.get('last_name',''))}".strip(),
             "position": p.get("position"),
             "height": p.get("height"),
             "weight": p.get("weight"),
