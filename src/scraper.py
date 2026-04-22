@@ -153,10 +153,33 @@ def cfbd_advanced_stats(team_name: str, year: int, api_key: str) -> dict:
 
 # ── main scrape loop ──────────────────────────────────────────────────────────
 
+def _already_fetched(root: Path, slug: str, year: int) -> tuple[bool, bool, bool]:
+    """Return (has_stats, has_roster, has_games) from cached CSVs to avoid re-fetching."""
+    stats_path    = root / "team_stats" / "team_stats_raw.csv"
+    rosters_path  = root / "rosters"    / "rosters_raw.csv"
+    schedules_path = root / "schedules" / "schedules_raw.csv"
+
+    def _has_row(path, slug, year):
+        if not path.exists():
+            return False
+        try:
+            df = pd.read_csv(path, usecols=["school", "year"])
+            return ((df["school"].str.lower() == slug.lower()) & (df["year"] == year)).any()
+        except Exception:
+            return False
+
+    return (
+        _has_row(stats_path, slug, year),
+        _has_row(rosters_path, slug, year),
+        _has_row(schedules_path, slug, year),
+    )
+
+
 def scrape_all(start_year: int = 2005, end_year: int = 2024,
                data_dir: str = "data/raw") -> None:
     """
     Scrape all Ivy schools via the CollegeFootballData API.
+    Skips school/year combinations already saved to avoid wasting quota.
     Requires CFBD_API_KEY set in .env or environment.
     Get a free key at: https://collegefootballdata.com/key
     """
@@ -175,40 +198,57 @@ def scrape_all(start_year: int = 2005, end_year: int = 2024,
     for d in ["team_stats", "rosters", "schedules"]:
         (root / d).mkdir(parents=True, exist_ok=True)
 
-    all_stats, all_rosters, all_schedules = [], [], []
+    # Load any existing data so we can append without re-fetching
+    def _load_existing(path):
+        return pd.read_csv(path).to_dict("records") if path.exists() else []
+
+    all_stats     = _load_existing(root / "team_stats" / "team_stats_raw.csv")
+    all_rosters   = list(pd.read_csv(root / "rosters" / "rosters_raw.csv").to_dict("records")) if (root / "rosters" / "rosters_raw.csv").exists() else []
+    all_schedules = list(pd.read_csv(root / "schedules" / "schedules_raw.csv").to_dict("records")) if (root / "schedules" / "schedules_raw.csv").exists() else []
+
+    requests_made = 0
+    skipped = 0
 
     for slug, cfbd_name in IVY_CFBD_NAMES.items():
         print(f"\n=== {slug.upper()} ===")
         for year in range(start_year, end_year + 1):
+            has_stats, has_roster, has_games = _already_fetched(root, cfbd_name, year)
+
+            if has_stats and has_roster and has_games:
+                skipped += 1
+                print(f"  {year} [cached]", end=" ", flush=True)
+                continue
+
             print(f"  {year} ", end="", flush=True)
 
-            stats = cfbd_team_stats(cfbd_name, year, api_key)
-            adv = cfbd_advanced_stats(cfbd_name, year, api_key)
-            if stats:
-                stats.update(adv)
-                all_stats.append(stats)
-                print("S", end="", flush=True)
+            if not has_stats:
+                stats = cfbd_team_stats(cfbd_name, year, api_key)
+                adv   = cfbd_advanced_stats(cfbd_name, year, api_key)
+                requests_made += 2
+                if stats:
+                    stats.update(adv)
+                    all_stats.append(stats)
+                    print("S", end="", flush=True)
 
-            roster = cfbd_roster(cfbd_name, year, api_key)
-            if not roster.empty:
-                all_rosters.append(roster)
-                print("R", end="", flush=True)
+            if not has_roster:
+                roster = cfbd_roster(cfbd_name, year, api_key)
+                requests_made += 1
+                if not roster.empty:
+                    all_rosters.extend(roster.to_dict("records"))
+                    print("R", end="", flush=True)
 
-            games = cfbd_games(cfbd_name, year, api_key)
-            if not games.empty:
-                all_schedules.append(games)
-                print("G", end="", flush=True)
+            if not has_games:
+                games = cfbd_games(cfbd_name, year, api_key)
+                requests_made += 1
+                if not games.empty:
+                    all_schedules.extend(games.to_dict("records"))
+                    print("G", end="", flush=True)
 
+            # Save incrementally every school so a crash doesn't lose everything
+        pd.DataFrame(all_stats).to_csv(root / "team_stats" / "team_stats_raw.csv", index=False)
+        pd.DataFrame(all_rosters).to_csv(root / "rosters" / "rosters_raw.csv", index=False)
+        pd.DataFrame(all_schedules).to_csv(root / "schedules" / "schedules_raw.csv", index=False)
         print()
 
-    if all_stats:
-        pd.DataFrame(all_stats).to_csv(root / "team_stats" / "team_stats_raw.csv", index=False)
-        print(f"\nSaved team_stats_raw.csv  ({len(all_stats)} rows)")
-    if all_rosters:
-        pd.concat(all_rosters, ignore_index=True).to_csv(root / "rosters" / "rosters_raw.csv", index=False)
-        print(f"Saved rosters_raw.csv")
-    if all_schedules:
-        pd.concat(all_schedules, ignore_index=True).to_csv(root / "schedules" / "schedules_raw.csv", index=False)
-        print(f"Saved schedules_raw.csv")
-    if not any([all_stats, all_rosters, all_schedules]):
-        print("\n[!] No data collected. Check your API key and try again.")
+    print(f"\nDone.  API requests made this run: {requests_made}  |  Years skipped (cached): {skipped}")
+    print(f"Saved: {len(all_stats)} stat rows, {len(all_rosters)} roster rows, {len(all_schedules)} game rows")
