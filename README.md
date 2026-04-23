@@ -26,7 +26,8 @@ ivy-football-analytics/
 ├── .streamlit/
 │   └── config.toml               # Dark theme config
 ├── src/
-│   ├── scraper.py                # Sports-Reference scraping
+│   ├── scraper.py                # Sports-Reference team stats + schedule scraping
+│   ├── roster_scraper.py         # Sports-Reference roster scraping (height/weight/pos)
 │   ├── features.py               # Metric + roster feature engineering
 │   ├── scheme_detector.py        # Style scoring + scheme labeling logic
 │   └── models.py                 # Panel regression + RF/LR roster model
@@ -34,13 +35,14 @@ ivy-football-analytics/
 │   ├── 01_scrape.ipynb           # Run first — pulls all raw data (~45-90 min)
 │   ├── 02_features_and_schemes.ipynb  # Feature engineering + slider interface
 │   ├── 03_scheme_regression.ipynb     # Scheme effect regression
-│   └── 04_roster_model.ipynb          # Roster → win probability model
+│   ├── 04_roster_model.ipynb          # Roster → win probability model
+│   └── 05_export.ipynb               # Export all results to Excel workbook
 └── data/
     ├── raw/
     │   ├── team_stats/           # team_stats_raw.csv
     │   ├── rosters/              # rosters_raw.csv
     │   └── schedules/            # schedules_raw.csv
-    └── processed/                # master_labeled.csv + charts
+    └── processed/                # master_labeled.csv, ivy_football_analysis.xlsx
 ```
 
 ---
@@ -67,7 +69,7 @@ Opens at `http://localhost:8501`
 python -m notebook
 ```
 
-Open `notebooks/01_scrape.ipynb` and run all cells. Then run `02`, `03`, `04` in order. The dashboard picks up real data automatically on next load.
+Open `notebooks/01_scrape.ipynb` and run all cells. Then run `02`, `03`, `04`, `05` in order. The dashboard picks up real data automatically on next load. Notebook `05` compiles everything into a single Excel workbook at `data/processed/ivy_football_analysis.xlsx`.
 
 ---
 
