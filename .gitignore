@@ -7,3 +7,8 @@ __pycache__/
 .env
 *.egg-info/
 dist/
+
+# React UI
+ui/node_modules/
+ui/dist/
+ui/.netlify/
